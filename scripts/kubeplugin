@@ -1,0 +1,74 @@
+#!/bin/bash
+
+# optional argument handling
+if [[ "$1" == "version" ]]
+then
+    echo "1.0.0"
+    exit 0
+fi
+
+# optional argument handling
+if [[ "$1" == "config" ]]
+then
+    echo "$KUBECONFIG"
+    exit 0
+fi
+
+# Show help message
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    echo "Usage: kubectl resources [RESOURCE_TYPE] [NAMESPACE]"
+    echo "Options:"
+    echo "  RESOURCE_TYPE   Resource type to query (pods, nodes). Default: all."
+    echo "  NAMESPACE       Namespace to query. Default: all."
+    echo "  --help, -h      Show this help message."
+    echo "  version         Show plugin version."
+    echo "  config          Show current KUBECONFIG."
+    exit 0
+fi
+
+# Determine namespaces to process
+if [[ -z "$2" ]]; then
+    NAMESPACES=($(kubectl get ns -o jsonpath='{.items[*].metadata.name}'))
+else
+    NAMESPACES=("$2")
+fi
+
+# Determine resource types to process
+if [[ -z "$1" ]]; then
+    RESOURCE_TYPES=("pods" "nodes")
+else
+    RESOURCE_TYPES=("$1")
+fi
+
+{
+    echo "Resource, Namespace, Name, CPU, Memory"
+    # Only run 'kubectl top nodes' once
+    if [[ " ${RESOURCE_TYPES[@]} " =~ "nodes" ]]; then
+        kubectl top nodes 2>/dev/null | tail -n +2 | while read line
+        do
+            [[ -z "$line" ]] && continue
+            NAME=$(echo $line | awk '{print $1}')
+            CPU=$(echo $line | awk '{print $2}')
+            MEMORY=$(echo $line | awk '{print $3}')
+            echo "nodes, -, $NAME, $CPU, $MEMORY"
+        done
+    fi
+    # Run 'kubectl top pods' (or other resource types) per namespace
+    for NAMESPACE in "${NAMESPACES[@]}"; do
+        for RESOURCE_TYPE in "${RESOURCE_TYPES[@]}"; do
+            if [[ "$RESOURCE_TYPE" != "nodes" ]]; then
+                kubectl top $RESOURCE_TYPE -n $NAMESPACE 2>/dev/null | tail -n +2 | while read line
+                do
+                    [[ -z "$line" ]] && continue
+                    NAME=$(echo $line | awk '{print $1}')
+                    CPU=$(echo $line | awk '{print $2}')
+                    MEMORY=$(echo $line | awk '{print $3}')
+                    echo "$RESOURCE_TYPE, $NAMESPACE, $NAME, $CPU, $MEMORY"
+                done
+            fi
+        done
+    done
+}
+
+echo "I am a plugin named kubectl-usage"
+
